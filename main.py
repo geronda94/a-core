@@ -1,4 +1,3 @@
-# main.py
 import time
 import subprocess
 from identity import get_config, update_config, update_runtime_info
@@ -7,67 +6,70 @@ from core.device import DeviceHardware
 from network.monitor import get_external_ip, find_adb_port
 
 def is_adb_alive():
-    """Проверяет, жива ли связь, не нагружая сеть."""
+    """Проверяет реальный статус: device - OK, offline/пусто - Bad."""
     try:
-        # Просто смотрим список, не пытаясь подключиться
         res = subprocess.check_output("adb devices", shell=True, text=True)
-        # Нам нужно, чтобы было слово 'device' и не было 'offline'
+        # Нам нужен именно статус 'device'. 'offline' нам не подходит.
         return "device" in res and "offline" not in res and "unauthorized" not in res
     except:
         return False
 
 def main():
-    print("=== A-CORE: NMAP INTEGRATION ===")
+    print("=== A-CORE: STABLE CONNECTION FIX ===")
     config = get_config()
     adb = ADBClient()
     hw = DeviceHardware(adb)
 
-    # При старте сразу проверяем, может мы уже подключены через autoconnect.sh?
-    if is_adb_alive():
-        print("[V] ADB уже активен. Работаем.")
-    
     while True:
         try:
-            # 1. ПРОВЕРКА СВЯЗИ
+            # 1. ЕСТЬ ЛИ ЖИВАЯ СВЯЗЬ?
             if is_adb_alive():
-                # ВСЁ ХОРОШО. Не трогаем порты, не сканируем.
-                # Просто обновляем IP раз в цикл и ждем задачи.
-                
-                # (Тут позже будет код получения задач с сервера)
-                
-                # Редкая проверка конфига (раз в минуту, не чаще)
+                # --- БЛОК АКТИВНОЙ РАБОТЫ ---
+                # Если связь есть, просто обновляем IP и радуемся жизни
                 if config.get("model") == "Unknown":
+                    print("[*] Дочитываю данные об устройстве...")
                     m = hw.get_model()
                     if m: 
                         update_config("model", m)
                         config = get_config()
-                        print(f"[+] Модель определена: {m}")
 
-                # Лог для спокойствия (можно убрать)
-                # print(f"[*] OK | {config['model']}")
+                # Здесь позже будет executor.execute(...)
                 
+                # print(f"[V] Связь в норме. Порт: {config.get('last_port')}") # Раскомментируй для отладки
+
             else:
-                # СВЯЗИ НЕТ. Только сейчас запускаем поиск.
-                print("[!] Связь потеряна. Ищу порт через Nmap...")
+                # --- БЛОК ВОССТАНОВЛЕНИЯ ---
+                print("[!] Связи нет. Ищу порт через Nmap...")
                 
-                port = find_adb_port() # Теперь это мгновенно и безопасно
+                port = find_adb_port()
                 
                 if port:
-                    print(f"[*] Порт найден: {port}. Подключаюсь...")
-                    # Очистка не нужна, если мы просто потеряли связь
-                    subprocess.run(f"adb connect 127.0.0.1:{port}", shell=True, capture_output=True)
+                    print(f"[*] Порт найден: {port}. Сброс и подключение...")
+                    
+                    # ВАЖНО: Сначала отключаем этот порт, чтобы убить "зомби"
+                    subprocess.run(f"adb disconnect 127.0.0.1:{port}", shell=True, capture_output=True)
+                    time.sleep(1) 
+                    
+                    # Теперь подключаемся начисто
+                    res = subprocess.run(f"adb connect 127.0.0.1:{port}", shell=True, capture_output=True, text=True)
+                    print(f"    > {res.stdout.strip()}") # Выводим ответ ADB
+                    
                     update_runtime_info(port=port)
-                    # Даем 2 секунды на прогрузку
-                    time.sleep(2)
+                    
+                    # Ждем чуть дольше, чтобы авторизация прошла
+                    time.sleep(3)
+                    
+                    # Если после подключения всё еще плохо - выводим статус
+                    if not is_adb_alive():
+                        print(f"[?] Подключился, но статус не 'device'. Проверь 'adb devices'.")
                 else:
-                    print("[?] Порт не найден. Включена ли отладка?")
+                    print("[?] Порт не найден (Nmap пусто). Отладка включена?")
                     time.sleep(5)
 
         except Exception as e:
-            print(f"[!] Ошибка цикла: {e}")
+            print(f"[!] Ошибка: {e}")
         
-        # Пауза цикла. Мы не переподключаемся здесь!
         time.sleep(5)
 
 if __name__ == "__main__":
-    main()
+    main()1
