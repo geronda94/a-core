@@ -1,45 +1,46 @@
 import time
-import requests
-from identity import get_device_id
-from network.monitor import get_network_status
+from identity import get_config, update_config
 from core.adb_client import ADBClient
-
-# Настройки сервера
-SERVER_URL = "https://твой-сервер.com/api" 
+from core.device import DeviceInfo
+from network.monitor import get_network_status
 
 def main():
-    device_id = get_device_id()
-    # Инициализируем клиента (на ПК это обычно 127.0.0.1:5555 или IP телефона)
-    # Для теста на ПК укажи адрес, который видишь в `adb devices`
-    net_info = get_network_status()
-    client = ADBClient(port=net_info['adb_port'])
+    config = get_config()
+    # На ПК адрес берем из adb devices, в Termux обычно localhost:5555
+    client = ADBClient(port="5555") 
+    device = DeviceInfo(client)
 
-    print(f"=== A-CORE STARTED [ID: {device_id}] ===")
+    # 1. Дозаполняем конфиг, если он пустой (единоразово)
+    if config.get("resolution") == "Unknown":
+        res = device.get_resolution()
+        update_config("resolution", res)
+        config["resolution"] = res
+
+    if config.get("model") == "Unknown":
+        model = device.get_model()
+        update_config("model", model)
+        config["model"] = model
+
+    print(f"=== A-CORE STARTED ===")
+    print(f"ID: {config['device_id']} | Model: {config['model']} | Res: {config['resolution']}")
 
     while True:
-        try:
-            # 1. Собираем актуальные данные
-            net = get_network_status()
-            payload = {
-                "device_id": device_id,
-                "ip": net['ip'],
-                "adb_port": net['adb_port'],
-                "timestamp": time.time()
-            }
+        # Собираем динамические данные (IP, MAC)
+        net = get_network_status()
+        mac = device.get_mac()
 
-            print(f"[*] Отправка статуса... IP: {payload['ip']}")
-            
-            # 2. Опрос сервера (закомментировано, пока нет сервера)
-            # response = requests.post(f"{SERVER_URL}/poll", json=payload, timeout=10)
-            # tasks = response.json().get("tasks", [])
-            
-            # Для теста: просто выведем данные в консоль
-            print(f"Данные для сервера: {payload}")
+        payload = {
+            **config, # Включаем ID, дату старта, разрешение
+            "current_ip": net['ip'],
+            "current_mac": mac,
+            "adb_port": net['adb_port'],
+            "timestamp": time.time()
+        }
 
-        except Exception as e:
-            print(f"[!] Ошибка: {e}")
-
-        time.sleep(15) # Интервал опроса
+        print(f"[*] Отправка данных: IP {payload['current_ip']}, MAC {payload['current_mac']}")
+        # Здесь будет requests.post...
+        
+        time.sleep(15)
 
 if __name__ == "__main__":
     main()
