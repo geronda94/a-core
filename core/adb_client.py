@@ -1,29 +1,24 @@
+# core/adb_client.py
 import subprocess
-import time
 
 class ADBClient:
-    def __init__(self, host="localhost", port="5555"):
-        self.addr = f"{host}:{port}"
+    def __init__(self, host="127.0.0.1", port="5555"):
+        self.host = host
+        self.port = port
+        self.address = f"{host}:{port}"
 
     def run(self, command):
-        """Выполняет adb shell команду."""
-        cmd = f"adb -s {self.addr} shell {command}"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        return result.stdout.strip()
+        """Выполняет команду и возвращает результат."""
+        # Добавляем принудительное указание устройства через -s
+        full_cmd = f"adb -s {self.address} shell \"{command}\""
+        try:
+            result = subprocess.run(full_cmd, shell=True, capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                return ""
+            return result.stdout.strip()
+        except:
+            return ""
 
-    def tap(self, x, y):
-        self.run(f"input tap {x} {y}")
-
-    def swipe(self, x1, y1, x2, y2, ms=500):
-        self.run(f"input swipe {x1} {y1} {x2} {y2} {ms}")
-
-    def key(self, key_code):
-        self.run(f"input keyevent {key_code}")
-
-    def get_xml(self):
-        """Выгружает иерархию экрана."""
-        self.run("uiautomator dump /sdcard/view.xml")
-        # Для ПК нужно вытянуть файл к себе, в Termux можно читать напрямую
-        subprocess.run(f"adb -s {self.addr} pull /sdcard/view.xml .", shell=True, capture_output=True)
-        with open("view.xml", "r", encoding="utf-8") as f:
-            return f.read()
+    def is_connected(self):
+        res = subprocess.run(f"adb devices", shell=True, capture_output=True, text=True)
+        return self.address in res.stdout and "device" in res.stdout

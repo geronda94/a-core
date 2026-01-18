@@ -1,5 +1,4 @@
-# ~/a-core/core/device.py
-import subprocess
+# core/device.py
 import re
 
 class DeviceHardware:
@@ -8,13 +7,13 @@ class DeviceHardware:
 
     def get_resolution(self):
         res = self.adb.run("wm size")
-        match = re.search(r"(\d+x\d+)", res)
+        # Ищем паттерн типа 1080x2400
+        match = re.search(r'(\d+x\d+)', res)
         return match.group(1) if match else "unknown"
 
     def get_model(self):
-        return self.adb.run("getprop ro.product.model")
-
-    def get_mac(self):
-        # В Termux доступ к интерфейсам может быть ограничен, пробуем так:
-        res = self.adb.run("cat /sys/class/net/wlan0/address")
-        return res.strip() if res else "unknown"
+        # Пробуем несколько системных свойств
+        model = self.adb.run("getprop ro.product.model")
+        if not model:
+            model = self.adb.run("getprop ro.product.brand") + " " + self.adb.run("getprop ro.product.device")
+        return model if model.strip() else "Android Device"

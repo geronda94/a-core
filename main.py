@@ -1,45 +1,52 @@
-# ~/a-core/main.py
+# main.py
 import time
 from identity import get_config, update_config
 from core.adb_client import ADBClient
 from core.device import DeviceHardware
+from core.vision import Vision
 from network.monitor import get_adb_port, get_external_ip
 
 def main():
     config = get_config()
-    # Инициализируем ADB (в Termux подключаемся к localhost)
-    adb = ADBClient(host="127.0.0.1", port=get_adb_port())
-    hw = DeviceHardware(adb)
+    port = get_adb_port()
+    client = ADBClient(port=port)
+    
+    # 1. Проверка коннекта
+    if not client.is_connected():
+        print(f"[!] Устройство {client.address} не найдено. Попытка переподключения...")
+        import subprocess
+        subprocess.run(f"adb connect {client.address}", shell=True)
 
-    # Единоразово заполняем данные о железе, если их нет
-    if config.get("model") == "Unknown":
+    hw = DeviceHardware(client)
+    vision = Vision(client)
+
+    # 2. Актуализация конфига
+    if config.get("model") == "" or config.get("resolution") == "unknown":
         print("[*] Собираем данные об устройстве...")
         update_config("model", hw.get_model())
         update_config("resolution", hw.get_resolution())
         config = get_config()
 
-    print(f"=== A-CORE ACTIVE ===")
-    print(f"ID: {config['device_id']} | {config['model']} | {config['resolution']}")
+    print(f"=== A-CORE ACTIVE [ID: {config['device_id']}] ===")
+    print(f"[*] {config['model']} | {config['resolution']}")
 
     while True:
-        try:
-            status = {
-                "id": config['device_id'],
-                "ip": get_external_ip(),
-                "adb_port": get_adb_port(),
-                "mac": hw.get_mac(),
-                "uptime": time.monotonic()
-            }
-            
-            print(f"[*] Отчет: IP={status['ip']} | ADB={status['adb_port']}")
-            
-            # Здесь будет отправка на сервер:
-            # requests.post(SERVER_URL, json=status)
-            
-        except Exception as e:
-            print(f"[!] Ошибка цикла: {e}")
+        # Тестовый поиск текста на экране (например, слова "Settings" или "Sasha")
+        target = "Sasha"
+        found = vision.find_element(target)
         
-        time.sleep(30)
+        if found:
+            print(f"[+] Нашел '{target}' в координатах {found}")
+        
+        # Отчет для сервера
+        status = {
+            "id": config['device_id'],
+            "ip": get_external_ip(),
+            "adb_port": port
+        }
+        print(f"[*] Heartbeat: IP={status['ip']}")
+        
+        time.sleep(15)
 
 if __name__ == "__main__":
     main()
