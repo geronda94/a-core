@@ -1,52 +1,51 @@
-# main.py
 import time
 from identity import get_config, update_config
 from core.adb_client import ADBClient
 from core.device import DeviceHardware
-from core.vision import Vision
-from network.monitor import get_adb_port, get_external_ip
+from network.monitor import get_external_ip
 
 def main():
+    print("=== A-CORE: AUTONOMOUS START ===")
     config = get_config()
-    port = get_adb_port()
-    client = ADBClient(port=port)
-    
-    # 1. Проверка коннекта
-    if not client.is_connected():
-        print(f"[!] Устройство {client.address} не найдено. Попытка переподключения...")
-        import subprocess
-        subprocess.run(f"adb connect {client.address}", shell=True)
-
-    hw = DeviceHardware(client)
-    vision = Vision(client)
-
-    # 2. Актуализация конфига
-    if config.get("model") == "" or config.get("resolution") == "unknown":
-        print("[*] Собираем данные об устройстве...")
-        update_config("model", hw.get_model())
-        update_config("resolution", hw.get_resolution())
-        config = get_config()
-
-    print(f"=== A-CORE ACTIVE [ID: {config['device_id']}] ===")
-    print(f"[*] {config['model']} | {config['resolution']}")
+    adb = ADBClient()
+    hw = DeviceHardware(adb)
 
     while True:
-        # Тестовый поиск текста на экране (например, слова "Settings" или "Sasha")
-        target = "Sasha"
-        found = vision.find_element(target)
+        try:
+            # 1. Проверяем/чиним ADB
+            if not adb.ensure_connection():
+                print("[?] Ожидание включения отладки на телефоне...")
+                time.sleep(10)
+                continue
+
+            # 2. Автозаполнение пустых полей в конфиге
+            needs_update = False
+            if not config.get("model") or config.get("model") == "Unknown":
+                model = hw.get_model()
+                if model:
+                    config["model"] = model
+                    update_config("model", model)
+                    needs_update = True
+
+            if not config.get("resolution") or config.get("resolution") == "unknown":
+                res = hw.get_resolution()
+                if res != "unknown":
+                    config["resolution"] = res
+                    update_config("resolution", res)
+                    needs_update = True
+
+            if needs_update:
+                print(f"[V] Конфиг обновлен: {config['model']} | {config['resolution']}")
+
+            # 3. Отправка Heartbeat на сервер
+            print(f"[*] Статус: ID={config['device_id']} | IP={get_external_ip()} | ADB={adb.port}")
+            
+            # (Здесь будет твой requests.post)
+
+        except Exception as e:
+            print(f"[!] Критическая ошибка: {e}")
         
-        if found:
-            print(f"[+] Нашел '{target}' в координатах {found}")
-        
-        # Отчет для сервера
-        status = {
-            "id": config['device_id'],
-            "ip": get_external_ip(),
-            "adb_port": port
-        }
-        print(f"[*] Heartbeat: IP={status['ip']}")
-        
-        time.sleep(15)
+        time.sleep(20)
 
 if __name__ == "__main__":
     main()
