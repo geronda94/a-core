@@ -1,4 +1,4 @@
-# ~/a-core/identity.py
+# identity.py
 import os
 import json
 import uuid
@@ -11,22 +11,26 @@ def get_config():
         try:
             with open(CONFIG_PATH, 'r') as f:
                 return json.load(f)
-        except:
-            pass
-
-    # Первичная настройка
+        except: pass
+    
     config = {
         "device_id": f"id_{uuid.uuid4().hex[:6]}",
         "first_init": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "model": "Unknown",
-        "resolution": "Unknown"
+        "resolution": "unknown",
+        "last_ip": "0.0.0.0",
+        "last_port": "5555"
     }
-    with open(CONFIG_PATH, 'w') as f:
-        json.dump(config, f, indent=4)
+    save_config(config)
     return config
 
-def update_config(key, value):
-    config = get_config()
-    config[key] = value
+def save_config(config):
     with open(CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=4)
+
+def update_runtime_info(ip=None, port=None):
+    """Обновляет только динамические данные в фоне."""
+    config = get_config()
+    if ip: config["last_ip"] = ip
+    if port: config["last_port"] = port
+    save_config(config)
