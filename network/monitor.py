@@ -1,26 +1,19 @@
 import socket
 import requests
 
-def find_adb_port(start_port=30000, end_port=49999):
-    """Более надежный поиск порта."""
-    # Сначала проверим, не прописан ли порт уже в системе
-    print(f"[*] Сканирую порты для ADB...")
-    for port in [37239, 43087, 38037, 5555]: # Проверяем твои прошлые порты в приоритете
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.1) # Увеличили таймаут до 0.1
-            if s.connect_ex(('127.0.0.1', port)) == 0:
-                return str(port)
+def is_port_open(port):
+    """Молниеносная проверка одного порта."""
+    if not port: return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.1)
+        return s.connect_ex(('127.0.0.1', int(port))) == 0
 
-    # Если в списке нет, сканируем весь диапазон
+def find_adb_port(start_port=30000, end_port=49999):
+    """Тяжелый сканер (запускается только при необходимости)."""
+    print(f"[*] ВНИМАНИЕ: Запуск полного сканирования портов...")
     for port in range(start_port, end_port + 1):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.05) 
+            s.settimeout(0.02) # Ускоряем сканирование
             if s.connect_ex(('127.0.0.1', port)) == 0:
                 return str(port)
     return None
-
-def get_external_ip():
-    try:
-        return requests.get("https://api.ipify.org", timeout=5).text
-    except:
-        return "0.0.0.0"
