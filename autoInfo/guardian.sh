@@ -1,4 +1,3 @@
-cat << 'EOF' > guardian.sh
 #!/bin/bash
 
 echo "=== A-CORE GUARDIAN: AGGRESSIVE v3 ==="
@@ -53,5 +52,4 @@ while true; do
         fi
     fi
 done
-EOF
-chmod +x guardian.sh
+

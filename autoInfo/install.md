@@ -151,3 +151,4 @@ pkg install cronie -y
 Установи приложение Termux:Boot (из F-Droid).
 
 Создай папку: mkdir -p ~/.termux/boot/
+chmod +x guardian.sh
