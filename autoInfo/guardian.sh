@@ -1,55 +1,44 @@
+
 #!/bin/bash
 
-echo "=== A-CORE GUARDIAN: AGGRESSIVE v3 ==="
+ID=777
+termux-wake-lock
 
-# Функция перезапуска ADB при проблемах
-restart_adb() {
-    echo "[☠️] Перезапуск ADB сервера..."
-    adb disconnect > /dev/null 2>&1
-    adb kill-server
-    sleep 2
-    adb start-server
-    sleep 2
+cleanup() {
+    termux-notification-remove $ID
+    termux-wake-unlock
+    exit
+}
+trap cleanup SIGINT SIGTERM
+
+notify() {
+    MSG="$1"
+    echo "$(date '+%H:%M:%S') $MSG"
+    termux-notification --title "A-Core Guardian 🛡️" --content "$MSG" --id $ID --priority default
 }
 
+echo "=== A-CORE GUARDIAN: PASSIVE MODE ==="
+
 while true; do
-    # 1. Проверяем, есть ли ЖИВОЕ устройство
-    if adb devices | grep -q "device$"; then
-        echo -n "."
-        sleep 5
+    # 1. Проверяем наличие ХОТЯ БЫ ОДНОГО живого устройства
+    # awk '{print $2}' вытягивает только статус (device, offline и т.д.)
+    if adb devices | grep -v "List" | awk '{print $2}' | grep -qx "device"; then
+        # Если нашли статус 'device' — уходим в глубокий сон
+        echo -n "." 
+        sleep 30
     else
         echo ""
-        echo "[!] Связь потеряна."
-        
-        # 2. Сканируем порт (берем только первый)
-        PORT=$(nmap 127.0.0.1 -p 30000-49999 | grep "open" | head -n 1 | awk -F'/' '{print $1}')
+        # 2. Только если девайсов НЕТ, ищем порт
+        PORT=$(nmap localhost -p 30000-49999 | grep "open" | head -n 1 | awk -F'/' '{print $1}')
 
-        if [ -z "$PORT" ]; then
-            echo "[?] Портов нет. ADB спит?"
-            # Если портов нет долгое время, можно попробовать пнуть сервер
-            sleep 3
+        if [ ! -z "$PORT" ]; then
+            notify "🔄 Восстановление связи: $PORT"
+            # Пробуем подключиться, не разрывая старое (вдруг оно оживет)
+            adb connect localhost:$PORT > /dev/null 2>&1
+            sleep 5
         else
-            echo "[*] Пробую порт: $PORT"
-            
-            # 3. Пытаемся подключиться и сохраняем вывод
-            OUTPUT=$(adb connect 127.0.0.1:$PORT 2>&1)
-            echo "   > $OUTPUT"
-
-            # 4. Анализируем ответ
-            if [[ "$OUTPUT" == *"failed"* ]] || [[ "$OUTPUT" == *"refused"* ]]; then
-                echo "[!] Ошибка подключения. Сброс сервера..."
-                restart_adb
-            else
-                # Вроде подключились, проверяем статус
-                sleep 2
-                if adb devices | grep -q "offline"; then
-                    echo "[X] Устройство OFFLINE. Жесткий сброс..."
-                    restart_adb
-                else
-                    echo "[V] Успех!"
-                fi
-            fi
+            notify "🔍 Ожидание порта (проверь отладку)"
+            sleep 10
         fi
     fi
 done
-

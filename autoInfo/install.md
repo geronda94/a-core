@@ -141,14 +141,21 @@ adb shell uiautomator dump /sdcard/view.xml && cat /sdcard/view.xml
 - `pkg install python lxml -y`
 - `pip install requests beautifulsoup4`
 
-chmod +x autoconnect.sh
-./autoconnect.sh  
 
-pkg install tmux
-pkg install cronie -y
-(crontab -l 2>/dev/null; echo "* * * * * ~/guardian.sh") | crontab -
 
-Установи приложение Termux:Boot (из F-Droid).
 
-Создай папку: mkdir -p ~/.termux/boot/
+1. Подготовка
+Убедись, что установлен пакет API (нужен для шторки и блокировки сна):
+pkg install termux-api
 chmod +x guardian.sh
+
+chmod +x guardian.sh
+3. Как запустить в фоне (Легкий способ)
+Теперь, чтобы освободить терминал и оставить скрипт жить вечно:
+
+Команда запуска:
+nohup ./guardian.sh > /dev/null 2>&1 &
+держит процесс при закрытии терминала.
+
+4. Как остановить?
+pkill -f guardian.sh
