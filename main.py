@@ -1,93 +1,77 @@
 import time
 import subprocess
-import re
-from identity import get_config, update_config, update_runtime_info
+from identity import get_config, update_config
 from core.adb_client import ADBClient
 from core.device import DeviceHardware
-from network.monitor import get_external_ip, find_adb_port
+from network.monitor import get_external_ip
+from tasks.executor import TaskExecutor
 
-def get_adb_status():
-    """
-    Возвращает статус текущего подключения:
-    'ok' - всё работает (device)
-    'offline' - зависло (offline/unauthorized)
-    'none' - нет соединений
-    """
-    try:
-        output = subprocess.check_output("adb devices", shell=True, text=True).strip()
-        if "offline" in output or "unauthorized" in output:
-            return "offline"
-        if "device" in output and "localhost" in output:
-            return "ok"
-    except:
-        pass
-    return "none"
+# --- ТЕСТОВЫЙ ПАКЕТ ЗАДАЧ (Как будто пришел от AI/Сервера) ---
+MOCK_TASK = {
+  "batch_id": "test_flow_01",
+  "actions": [
+    {
+      "command": "click",
+      "target": {
+        "description": "Кнопка настроек (пример)",
+        "strategies": [
+           {"type": "text", "value": "Settings"},
+           {"type": "text", "value": "Настройки"},
+           {"type": "desc", "value": "Settings"}
+        ]
+      }
+    },
+    {
+      "command": "wait",
+      "seconds": 2
+    }
+  ]
+}
 
-def clean_zombie_connections():
-    """Находит и убивает все offline подключения."""
+def is_adb_ready():
     try:
-        output = subprocess.check_output("adb devices", shell=True, text=True)
-        # Ищем строки вида '127.0.0.1:35689 offline'
-        zombies = re.findall(r"(127\.0\.0\.1:\d+)\s+offline", output)
-        for zombie in zombies:
-            print(f"[☠️] Убиваю зомби-соединение: {zombie}")
-            subprocess.run(f"adb disconnect {zombie}", shell=True)
-            time.sleep(1)
+        res = subprocess.check_output("adb devices | grep 'device$'", shell=True, text=True)
+        return bool(res.strip())
     except:
-        pass
+        return False
 
 def main():
-    print("=== A-CORE: ANTI-ZOMBIE MODE ===")
+    print("=== A-CORE: WORKER WITH EXECUTOR ===")
     config = get_config()
     adb = ADBClient()
     hw = DeviceHardware(adb)
+    
+    # Инициализируем исполнителя
+    executor = TaskExecutor(adb)
 
     while True:
         try:
-            status = get_adb_status()
-
-            # СЦЕНАРИЙ 1: Всё работает
-            if status == "ok":
-                # Редкая проверка модели (раз в цикл)
+            if is_adb_ready():
                 if config.get("model") == "Unknown":
                     m = hw.get_model()
                     if m: 
                         update_config("model", m)
                         config = get_config()
-                        print(f"[+] Модель определена: {m}")
-                
-                # ТУТ БУДЕТ EXECUTOR ЗАДАЧ
-                # ...
-                
-            # СЦЕНАРИЙ 2: Зависло (Offline)
-            elif status == "offline":
-                print("[!] Обнаружен статус OFFLINE. Зачистка...")
-                clean_zombie_connections()
-                # После зачистки сразу идем на новый круг поиска
-                continue
+                        print(f"[V] Устройство: {m}")
 
-            # СЦЕНАРИЙ 3: Нет соединения (None)
-            else:
-                print("[!] Связи нет. Ищу порт через Nmap...")
-                port = find_adb_port()
-                
-                if port:
-                    print(f"[*] Порт найден: {port}. Подключаюсь...")
-                    # На всякий случай делаем disconnect перед connect
-                    subprocess.run(f"adb disconnect 127.0.0.1:{port}", shell=True, capture_output=True)
+                # --- ТЕСТ ИСПОЛНИТЕЛЯ ---
+                # Чтобы не спамить кликами, выполним задачу 1 раз и поставим флаг
+                if not config.get("test_done"):
+                    print("[!] Запускаю тестовую задачу...")
+                    result = executor.execute_batch(MOCK_TASK)
+                    if result:
+                        print("[V] Тест завершен успешно!")
+                    else:
+                        print("[X] Тест провален.")
                     
-                    res = subprocess.run(f"adb connect 127.0.0.1:{port}", shell=True, capture_output=True, text=True)
-                    print(f"    > {res.stdout.strip()}")
-                    
-                    update_runtime_info(port=port)
-                    time.sleep(3) # Даем время на авторизацию
+                    # Чтобы не выполнять вечно - ставим паузу
+                    time.sleep(10)
                 else:
-                    print("[?] Порт не найден. Включи отладку!")
-                    time.sleep(5)
+                    print("[*] Жду команды от сервера...")
 
-        except KeyboardInterrupt:
-            print("\n[x] Остановка.")
-            break
+            else:
+                print("[...] Ожидаю Guardian...")
+
         except Exception as e:
             print(f"[!] Ошибка: {e}")
         
