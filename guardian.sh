@@ -1,132 +1,138 @@
 #!/usr/bin/env bash
 
 ID=777
-termux-wake-lock
 
-# Настройки
-MAX_RETRIES=3          # Сколько раз простить ошибку перед переподключением
-CHECK_INTERVAL=5       # Пауза между проверками (сек)
-CACHED_PORT=""         # Запоминаем последний рабочий порт
+# --- НАСТРОЙКИ ---
+CHECK_INTERVAL=5
+HEARTBEAT_INTERVAL=10
+# -----------------
+
+# Функция логирования (пишет и время, и текст)
+log() {
+    echo -e "\033[1;32m[$(date +%H:%M:%S)]\033[0m $1"
+}
+
+error() {
+    echo -e "\033[1;31m[ERROR]\033[0m $1"
+}
+
+# 1. ПРОВЕРКА ЗАВИСИМОСТЕЙ ПЕРЕД СТАРТОМ
+echo "=== ЗАПУСК ПРОВЕРКИ ==="
+
+if ! command -v termux-wake-lock &> /dev/null; then
+    error "Пакет 'termux-api' не установлен!"
+    echo "Выполните: pkg install termux-api"
+    exit 1
+fi
+
+if ! command -v nmap &> /dev/null; then
+    error "Пакет 'nmap' не установлен!"
+    echo "Выполните: pkg install nmap"
+    exit 1
+fi
+
+if ! command -v adb &> /dev/null; then
+    error "Пакет 'android-tools' не установлен!"
+    echo "Выполните: pkg install android-tools"
+    exit 1
+fi
+
+termux-wake-lock
+log "Блокировка сна (Wake Lock) активна."
 
 cleanup() {
     termux-notification-remove $ID
     termux-wake-unlock
-    echo "Guard выключен."
+    log "Скрипт остановлен."
     exit
 }
 
 trap cleanup SIGINT SIGTERM
 
 notify_status() {
+    # Пытаемся отправить уведомление, но не падаем, если ошибка
     termux-notification \
-        --title "A-Core Guard v2 🛡️" \
+        --title "Guard Xiaomi 🛡️" \
         --content "$1" \
         --id $ID \
-        --priority default
+        --priority default >/dev/null 2>&1 || true
 }
 
-echo "=== GUARDIAN V2: STABLE MODE ==="
+log "=== GUARDIAN v3.1: DEBUG MODE ==="
+notify_status "🚀 Запуск скрипта"
 
-# Функция проверки: возвращает 0 если есть ЖИВОЙ девайс
-check_connection() {
-    # Ищем девайс, который именно 'device' (готов к работе)
-    if adb devices | grep -q "[[:space:]]device$"; then
-        return 0
-    else
-        return 1
-    fi
-}
+LAST_HEARTBEAT=$(date +%s)
 
-# Функция поиска порта через Nmap
 find_adb_port() {
-    # Сначала пробуем старый порт, если он есть, чтобы не нагружать CPU сканированием
-    if [ ! -z "$CACHED_PORT" ]; then
-        if nc -z localhost $CACHED_PORT 2>/dev/null; then
-            echo "$CACHED_PORT"
-            return
-        fi
-    fi
-
-    # Если старый порт мертв, ищем новый
-    nmap localhost -p 30000-49999 \
+    log "Сканирование портов (Nmap)..."
+    nmap localhost -p 30000-49999 -T4 --min-rate 1000 \
         | awk '/open/ {print $1}' \
         | cut -d'/' -f1 \
         | head -n 1
 }
 
-# Мягкая очистка: удаляет только если статус offline висит слишком долго
-# В этой версии мы просто делаем adb disconnect для всех, КРОМЕ живых,
-# но только когда реально потеряли связь в основном цикле.
-force_reconnect() {
-    echo "[!] Перезапуск подключений..."
+hard_reset() {
+    log "⚠️ Выполняю сброс соединения..."
     adb disconnect >/dev/null 2>&1
-    
-    # Иногда ADB сервер зависает, если его слишком часто дергать
-    # adb kill-server # Раскомментируй, если совсем всё плохо, но это сбросит авторизацию
+    sleep 1
 }
 
 # --- MAIN LOOP ---
-
-FAIL_COUNT=0
-
 while true; do
-    if check_connection; then
-        # Всё хорошо
-        if [ $FAIL_COUNT -gt 0 ]; then
-            echo -n " (Стабильно)"
-            notify_status "✅ Система в норме"
+    # Получаем список
+    DEVICES_OUTPUT=$(adb devices | grep -v "List of devices attached" | grep -v "^$")
+    
+    # 1. СПИСОК ПУСТ?
+    if [ -z "$DEVICES_OUTPUT" ]; then
+        log "Устройств нет. Ищу порт..."
+        
+        PORT=$(find_adb_port)
+        
+        if [ -n "$PORT" ]; then
+            notify_status "🔌 Нашел порт: $PORT"
+            log "Подключаюсь к $PORT"
+            adb connect localhost:$PORT >/dev/null 2>&1
+            sleep 2
         else
-            echo -n "."
+            log "Порт не найден. Жду..."
+            sleep 3
+        fi
+        continue
+    fi
+
+    # 2. ПРОВЕРКА OFFLINE
+    if echo "$DEVICES_OUTPUT" | grep -q "offline"; then
+        notify_status "⚠️ Статус OFFLINE"
+        hard_reset
+        continue
+    fi
+
+    # 3. ПРОВЕРКА ЖИВОГО СОЕДИНЕНИЯ
+    if echo "$DEVICES_OUTPUT" | grep -q "device"; then
+        
+        # Heartbeat логика
+        CURRENT_TIME=$(date +%s)
+        TIME_DIFF=$((CURRENT_TIME - LAST_HEARTBEAT))
+        
+        if [ $TIME_DIFF -ge $HEARTBEAT_INTERVAL ]; then
+            if adb shell true >/dev/null 2>&1; then
+                # Успех - ничего не пишем в лог, чтобы не засорять, просто обновляем время
+                # Или можно вывести точку, если хочется видеть жизнь
+                # echo -n "." 
+                LAST_HEARTBEAT=$CURRENT_TIME
+            else
+                log "❌ Команда не прошла (Завис). Ресет."
+                notify_status "💀 Зависший сокет"
+                hard_reset
+                continue
+            fi
         fi
         
-        FAIL_COUNT=0
-        CACHED_PORT=$(adb devices | grep "device$" | awk '{print $1}' | cut -d: -f2)
+        # Если всё ок, просто ждем
         sleep $CHECK_INTERVAL
         continue
     fi
 
-    # Если мы здесь, значит живого соединения нет.
-    # Но не паникуем сразу. Даем шанс (защита от "мигающего" статуса)
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    
-    echo ""
-    echo "[?!] Потеря связи: попытка $FAIL_COUNT из $MAX_RETRIES"
-
-    if [ $FAIL_COUNT -lt $MAX_RETRIES ]; then
-        # Просто ждем, возможно девайс сам перейдет из offline в device
-        sleep 3
-        continue
-    fi
-
-    # Если ошибок слишком много - начинаем восстановление
-    notify_status "⚠️ Восстановление связи..."
-    
-    # 1. Рвем старые связи, чтобы не плодить зомби
-    force_reconnect
-    
-    # 2. Ищем порт
-    PORT=$(find_adb_port)
-    
-    if [ -z "$PORT" ]; then
-        notify_status "🔍 Порт не найден (Wireless Debugging выключен?)"
-        sleep 10
-        continue
-    fi
-
-    # 3. Подключаемся
-    echo "[+] Подключение к $PORT..."
-    adb connect localhost:$PORT >/dev/null 2>&1
-    
-    # Даем время на авторизацию (Authorizing -> Device)
-    sleep 5
-    
-    if check_connection; then
-        notify_status "✅ Подключено: $PORT"
-        CACHED_PORT=$PORT
-        FAIL_COUNT=0
-    else
-        notify_status "❌ Ошибка подключения"
-        # Если не вышло, в следующем цикле счетчик уже превышен, 
-        # так что он снова попробует найти порт.
-    fi
+    log "Неизвестный статус: $DEVICES_OUTPUT"
+    sleep 2
 done
