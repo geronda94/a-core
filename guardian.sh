@@ -58,13 +58,14 @@ notify_status() {
         --priority default >/dev/null 2>&1 || true
 }
 
-log "=== GUARDIAN v3.1: DEBUG MODE ==="
-notify_status "🚀 Запуск скрипта"
+log "=== GUARDIAN v3.2: LOG FIX ==="
+notify_status "🚀 Запуск скрипта v3.2"
 
 LAST_HEARTBEAT=$(date +%s)
 
 find_adb_port() {
-    log "Сканирование портов (Nmap)..."
+    # ВАЖНО: Лог отправляем в stderr (>%2), чтобы он не попал в переменную PORT
+    log "Сканирование портов (Nmap)..." >&2
     nmap localhost -p 30000-49999 -T4 --min-rate 1000 \
         | awk '/open/ {print $1}' \
         | cut -d'/' -f1 \
@@ -86,7 +87,11 @@ while true; do
     if [ -z "$DEVICES_OUTPUT" ]; then
         log "Устройств нет. Ищу порт..."
         
-        PORT=$(find_adb_port)
+        # Получаем сырой вывод
+        RAW_PORT=$(find_adb_port)
+        
+        # Очищаем от мусора, оставляем только цифры
+        PORT=$(echo "$RAW_PORT" | tr -cd '0-9')
         
         if [ -n "$PORT" ]; then
             notify_status "🔌 Нашел порт: $PORT"
@@ -116,9 +121,7 @@ while true; do
         
         if [ $TIME_DIFF -ge $HEARTBEAT_INTERVAL ]; then
             if adb shell true >/dev/null 2>&1; then
-                # Успех - ничего не пишем в лог, чтобы не засорять, просто обновляем время
-                # Или можно вывести точку, если хочется видеть жизнь
-                # echo -n "." 
+                # Успех
                 LAST_HEARTBEAT=$CURRENT_TIME
             else
                 log "❌ Команда не прошла (Завис). Ресет."
