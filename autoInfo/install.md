@@ -146,7 +146,9 @@ adb shell uiautomator dump /sdcard/view.xml && cat /sdcard/view.xml
 
 1. Подготовка
 Убедись, что установлен пакет API (нужен для шторки и блокировки сна):
+pkg install iproute2
 pkg install termux-api
+
 chmod +x guardian.sh
 
 chmod +x guardian.sh

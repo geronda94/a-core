@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 ID=777
@@ -11,33 +10,41 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-notify() {
-    MSG="$1"
-    echo "$(date '+%H:%M:%S') $MSG"
-    termux-notification --title "A-Core Guardian 🛡️" --content "$MSG" --id $ID --priority default
+notify_status() {
+    termux-notification --title "A-Core Status 🛡️" --content "$1" --id $ID --priority default
 }
 
-echo "=== A-CORE GUARDIAN: PASSIVE MODE ==="
+echo "=== GUARDIAN: OLD SCHOOL PROTOTYPE ==="
+
+# Очистка ТОЛЬКО ОДИН РАЗ при ручном старте
+adb disconnect > /dev/null 2>&1
 
 while true; do
-    # 1. Проверяем наличие ХОТЯ БЫ ОДНОГО живого устройства
-    # awk '{print $2}' вытягивает только статус (device, offline и т.д.)
-    if adb devices | grep -v "List" | awk '{print $2}' | grep -qx "device"; then
-        # Если нашли статус 'device' — уходим в глубокий сон
-        echo -n "." 
-        sleep 30
+    # 1. Если есть ХОТЬ ОДИН живой device — мы счастливы и спим.
+    # Нам плевать, сколько там висит offline-строк, главное есть active.
+    if adb devices | grep -v "List" | grep -q "device$"; then
+        echo -n "."
+        sleep 10
     else
         echo ""
-        # 2. Только если девайсов НЕТ, ищем порт
+        echo "[!] Нет активного подключения. Ищу порт..."
+        
+        # 2. Мы НЕ делаем disconnect. Мы просто ищем новый порт.
         PORT=$(nmap localhost -p 30000-49999 | grep "open" | head -n 1 | awk -F'/' '{print $1}')
 
         if [ ! -z "$PORT" ]; then
-            notify "🔄 Восстановление связи: $PORT"
-            # Пробуем подключиться, не разрывая старое (вдруг оно оживет)
+            notify_status "➕ Добавляю порт: $PORT"
+            
+            # Просто кидаем коннект поверх всего.
             adb connect localhost:$PORT > /dev/null 2>&1
             sleep 5
+            
+            # Проверка
+            if adb devices | grep -q "device$"; then
+                notify_status "✅ Связь есть"
+            fi
         else
-            notify "🔍 Ожидание порта (проверь отладку)"
+            notify_status "🔍 Порт не найден"
             sleep 10
         fi
     fi

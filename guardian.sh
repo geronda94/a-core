@@ -1,80 +1,51 @@
-
 #!/bin/bash
 
-# --- НАСТРОЙКИ ---
-ID=777             # ID уведомления (чтобы оно обновлялось, а не создавалось новое)
-LAST_MSG=""        # Кэш сообщения
-
-# 1. ЗАЩИТА ОТ ЗАСЫПАНИЯ (Android не убьет процесс)
+ID=777
 termux-wake-lock
 
-echo "=== A-CORE GUARDIAN: BACKGROUND + NOTIFY ==="
+cleanup() {
+    termux-notification-remove $ID
+    termux-wake-unlock
+    exit
+}
+trap cleanup SIGINT SIGTERM
 
-# Функция отправки в шторку (только если текст изменился)
-notify() {
-    MSG="$1"
-    # Пишем в консоль/лог
-    echo "$(date '+%H:%M:%S') $MSG"
-    
-    # Если сообщение новое - обновляем шторку
-    if [ "$MSG" != "$LAST_MSG" ]; then
-        termux-notification --title "A-Core Guardian 🛡️" --content "$MSG" --id $ID --priority default
-        LAST_MSG="$MSG"
-    fi
+notify_status() {
+    termux-notification --title "A-Core Status 🛡️" --content "$1" --id $ID --priority default
 }
 
-# Функция перезапуска ADB при проблемах
-restart_adb() {
-    notify "☠️ Перезапуск ADB сервера..."
-    adb disconnect > /dev/null 2>&1
-    adb kill-server
-    sleep 2
-    adb start-server
-    sleep 2
-}
+echo "=== GUARDIAN: OLD SCHOOL PROTOTYPE ==="
 
-# Стартовое сообщение
-notify "🚀 Служба запущена"
+# Очистка ТОЛЬКО ОДИН РАЗ при ручном старте
+adb disconnect > /dev/null 2>&1
 
 while true; do
-    # 1. Проверяем, есть ли ЖИВОЕ устройство
-    # Ищем строку, где в конце "device"
-    CURRENT_DEV=$(adb devices | grep "device$")
-    
-    if [ ! -z "$CURRENT_DEV" ]; then
-        # Вытаскиваем порт для красоты отчета
-        PORT_INFO=$(echo "$CURRENT_DEV" | awk '{print $1}')
-        notify "✅ Активен: $PORT_INFO"
+    # 1. Если есть ХОТЬ ОДИН живой device — мы счастливы и спим.
+    # Нам плевать, сколько там висит offline-строк, главное есть active.
+    if adb devices | grep -v "List" | grep -q "device$"; then
+        echo -n "."
         sleep 10
     else
-        notify "⚠️ Связь потеряна. Сканирование..."
+        echo ""
+        echo "[!] Нет активного подключения. Ищу порт..."
         
-        # 2. Сканируем порт (берем только первый)
-        PORT=$(nmap 127.0.0.1 -p 30000-49999 | grep "open" | head -n 1 | awk -F'/' '{print $1}')
+        # 2. Мы НЕ делаем disconnect. Мы просто ищем новый порт.
+        PORT=$(nmap localhost -p 30000-49999 | grep "open" | head -n 1 | awk -F'/' '{print $1}')
 
-        if [ -z "$PORT" ]; then
-            # Если портов нет, просто ждем, не меняя уведомление слишком часто
-            sleep 5
-        else
-            notify "🔗 Подключение к $PORT..."
+        if [ ! -z "$PORT" ]; then
+            notify_status "➕ Добавляю порт: $PORT"
             
-            # 3. Пытаемся подключиться
-            OUTPUT=$(adb connect 127.0.0.1:$PORT 2>&1)
-            echo "   > $OUTPUT"
-
-            # 4. Анализируем ответ
-            if [[ "$OUTPUT" == *"failed"* ]] || [[ "$OUTPUT" == *"refused"* ]]; then
-                restart_adb
-            else
-                # Вроде подключились, проверяем статус через паузу
-                sleep 2
-                if adb devices | grep -q "offline"; then
-                    notify "❌ Статус OFFLINE. Сброс..."
-                    restart_adb
-                else
-                    notify "✅ Успех! Порт: $PORT"
-                fi
+            # Просто кидаем коннект поверх всего.
+            adb connect localhost:$PORT > /dev/null 2>&1
+            sleep 5
+            
+            # Проверка
+            if adb devices | grep -q "device$"; then
+                notify_status "✅ Связь есть"
             fi
+        else
+            notify_status "🔍 Порт не найден"
+            sleep 10
         fi
     fi
 done
