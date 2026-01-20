@@ -58,8 +58,8 @@ notify_status() {
         --priority default >/dev/null 2>&1 || true
 }
 
-log "=== GUARDIAN v3.2: LOG FIX ==="
-notify_status "🚀 Запуск скрипта v3.2"
+log "=== GUARDIAN v3.3: XIAOMI STABLE ==="
+notify_status "🚀 Запуск скрипта v3.3"
 
 LAST_HEARTBEAT=$(date +%s)
 
@@ -96,8 +96,16 @@ while true; do
         if [ -n "$PORT" ]; then
             notify_status "🔌 Нашел порт: $PORT"
             log "Подключаюсь к $PORT"
-            adb connect localhost:$PORT >/dev/null 2>&1
-            sleep 2
+            
+            # ВАЖНО: Сначала очищаем старые хвосты
+            adb disconnect >/dev/null 2>&1
+            
+            # Подключаемся и показываем результат
+            CONNECT_RES=$(adb connect localhost:$PORT 2>&1)
+            log "Ответ ADB: $CONNECT_RES"
+            
+            # Даем Xiaomi больше времени на осознание (было 2 сек, стало 5)
+            sleep 5
         else
             log "Порт не найден. Жду..."
             sleep 3
@@ -123,6 +131,8 @@ while true; do
             if adb shell true >/dev/null 2>&1; then
                 # Успех
                 LAST_HEARTBEAT=$CURRENT_TIME
+                # Можно раскомментировать для отладки стабильности
+                # log "Heartbeat OK" 
             else
                 log "❌ Команда не прошла (Завис). Ресет."
                 notify_status "💀 Зависший сокет"
